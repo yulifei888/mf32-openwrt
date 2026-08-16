@@ -1,0 +1,329 @@
+#
+# MF32 云编译 (OpenStick / 高通410 MSM8916 随身WiFi)
+# 基于 lkiuyu/immortalwrt (master, 含 msm89xx 目标) + yulifei888/openstick-feeds
+# 一键编译并产出可刷机的 boot.img + system.img 刷机包
+#
+
+name: 🚀 MF32 云编译 (OpenStick)
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      ssh:
+        description: ' ← 开启 SSH 调试（专业人员使用，有效期 6h）'
+        required: false
+        default: false
+        type: boolean
+      custom_hash:
+        description: ' ↓ 指定 lkiuyu/immortalwrt 的 commit hash（留空则用锁定 hash，最稳）'
+        required: false
+        default: ''
+        type: string
+      extra_packages:
+        description: ' ↓ 额外包名（逗号/空格分隔；支持 __ip__192.168.x.x / __hostname__名称 改默认 IP/主机名）'
+        required: false
+        default: ''
+        type: string
+
+env:
+  REPO_URL: https://github.com/lkiuyu/immortalwrt
+  REPO_BRANCH: master
+  FEEDS_CONF: feeds.conf.default
+  CONFIG_FILE: config/mf32.config
+  DIY_P1_SH: scripts/diy-part1.sh
+  DIY_P2_SH: scripts/diy-part2.sh
+  UPLOAD_BIN_DIR: false
+  UPLOAD_FIRMWARE: true
+  UPLOAD_RELEASE: true
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    name: 编译 MF32 固件
+    steps:
+    - name: 🚀 拉取仓库
+      uses: actions/checkout@main
+
+    - name: 清理磁盘空间
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: false
+        android: false
+        dotnet: false
+        haskell: false
+        large-packages: false
+        docker-images: false
+        swap-storage: true
+
+    - name: 初始化编译环境
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo -E apt-get -y update
+        sudo -E apt-get -y install $(curl -fsSL https://raw.githubusercontent.com/xuxin1955/depend_ubuntu2204_openwrt/refs/heads/main/depend_ubuntu2204_openwrt)
+        sudo -E apt-get -y install dos2unix
+
+    - name: 安装 mkbootimg
+      run: |
+        wget https://github.com/xuxin1955/depend_ubuntu2204_openwrt/releases/download/ubuntu_26.04_LTS_mkbootimg/mkbootimg_34.0.5-12build1_all.deb
+        sudo dpkg -i mkbootimg_34.0.5-12build1_all.deb
+        sudo apt-get install -f -y
+        mkbootimg --help || true
+        sudo timedatectl set-timezone "$TZ"
+        sudo chmod 777 /mnt
+        df -hT
+
+    - name: 确保 Python 构建工具正确
+      run: |
+        python3 -m pip cache purge
+        python3 -m pip install --upgrade --force-reinstall pip
+        python3 -m pip install --upgrade --force-reinstall 'setuptools>=65' wheel
+        python3 -m pip install --upgrade 'setuptools-scm>=8,<10'
+        python3 -m pip install --upgrade cython packaging tomli
+        python3 -m pip install Unidecode pyelftools
+
+    - name: 读取锁定的上游 hash
+      id: lock
+      run: |
+        CUSTOM_HASH="${{ github.event.inputs.custom_hash }}"
+        LOCK_FILE="upstream_lock.txt"
+        if [ -n "$CUSTOM_HASH" ]; then
+          echo "locked_hash=$CUSTOM_HASH" >> $GITHUB_OUTPUT
+          echo "使用用户指定 hash: $CUSTOM_HASH"
+        elif [ -f "$LOCK_FILE" ]; then
+          HASH=$(cat "$LOCK_FILE")
+          echo "locked_hash=$HASH" >> $GITHUB_OUTPUT
+          echo "使用锁定 hash: $HASH"
+        else
+          echo "locked_hash=" >> $GITHUB_OUTPUT
+          echo "upstream_lock.txt 不存在，使用最新 master"
+        fi
+
+    - name: 克隆源码
+      working-directory: /mnt
+      run: |
+        df -hT $PWD
+        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        if [ -n "${{ steps.lock.outputs.locked_hash }}" ]; then
+          cd openwrt && git checkout ${{ steps.lock.outputs.locked_hash }}
+        fi
+        ln -sf /mnt/openwrt $GITHUB_WORKSPACE/openwrt
+
+    - name: 复制 files 覆盖层
+      run: cp -rf files/. openwrt/files/ 2>/dev/null || true
+
+    - name: 载入自定义 feeds
+      run: |
+        [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
+        chmod +x $DIY_P1_SH
+        cd openwrt
+        $GITHUB_WORKSPACE/$DIY_P1_SH
+
+    - name: 更新 feeds
+      run: cd openwrt && ./scripts/feeds update -a
+
+    - name: 移除 small-package 中与系统冲突的包
+      run: |
+        rm -rf openwrt/feeds/smpackage/{base-files,dnsmasq,firewall*,fullconenat,libnftnl,nftables,ppp,opkg,ucl,upx,vsftpd*,miniupnpd-iptables,wireless-regdb}
+
+    - name: 安装 feeds
+      run: cd openwrt && ./scripts/feeds install -a -f
+
+    - name: 载入自定义配置
+      run: |
+        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE openwrt/.config
+        chmod +x $DIY_P2_SH
+        cd openwrt
+        $GITHUB_WORKSPACE/$DIY_P2_SH
+
+    - name: 安装额外包（支持 __ip__ / __hostname__）
+      if: ${{ inputs.extra_packages != '' }}
+      run: |
+        cd openwrt
+        RAW='${{ inputs.extra_packages }}'
+        CUSTOM_IP=$(echo "$RAW" | grep -oP '(?<=__ip__)[^,\s]+' || true)
+        CUSTOM_HOSTNAME=$(echo "$RAW" | grep -oP '(?<=__hostname__)[^,\s]+' || true)
+        if [ -n "$CUSTOM_IP" ]; then
+          echo "🌐 设置管理 IP: $CUSTOM_IP"
+          sed -i "s/192\.168\.1\.1/$CUSTOM_IP/g" package/base-files/files/bin/config_generate
+        fi
+        if [ -n "$CUSTOM_HOSTNAME" ]; then
+          echo "🏷️ 设置主机名: $CUSTOM_HOSTNAME"
+          sed -i "s/set system\.@system\[0\]\.hostname='ImmortalWrt'/set system.@system[0].hostname='$CUSTOM_HOSTNAME'/" package/base-files/files/bin/config_generate || true
+          sed -i "s/option hostname 'ImmortalWrt'/option hostname '$CUSTOM_HOSTNAME'/" package/base-files/files/etc/config/system 2>/dev/null || true
+        fi
+        PACKAGES=$(echo "$RAW" | sed 's/,/ /g' | tr ' ' '\n' | grep -v '^__ip__' | grep -v '^__hostname__' | tr '\n' ' ')
+        if echo "$PACKAGES" | grep -qw "luci-app-turboacc"; then
+          echo "⚡ 检测到 luci-app-turboacc，执行安装脚本..."
+          curl -sSL https://raw.githubusercontent.com/mufeng05/turboacc/main/add_turboacc.sh -o add_turboacc.sh && bash add_turboacc.sh || echo "⚠️ turboacc 脚本执行失败，跳过"
+        fi
+        for pkg in $PACKAGES; do
+          if [ -n "$pkg" ]; then
+            CFG="CONFIG_PACKAGE_${pkg}"
+            if grep -q "^# ${CFG} is not set" .config; then
+              sed -i "s/^# ${CFG} is not set$/${CFG}=y/" .config
+              echo "✅ Enabled: ${CFG}=y"
+            elif grep -q "^${CFG}=" .config; then
+              sed -i "s/^${CFG}=.*$/${CFG}=y/" .config
+              echo "✅ Updated: ${CFG}=y"
+            else
+              echo "${CFG}=y" >> .config
+              echo "✅ Appended: ${CFG}=y"
+            fi
+          fi
+        done
+
+    - name: SSH 调试（可选）
+      uses: mxschmitt/action-tmate@master
+      if: ${{ inputs.ssh || contains(github.event.action, 'ssh') }}
+
+    - name: 生成最终配置
+      id: config
+      run: |
+        cd openwrt
+        make defconfig
+
+    - name: 下载依赖
+      run: |
+        cd openwrt
+        make download -j4 V=s
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: 编译固件
+      id: compile
+      run: |
+        cd openwrt
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
+        grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+        [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
+        echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+
+    - name: 获取内核版本
+      run: |
+        KERNEL_VER=$(cat /mnt/openwrt/build_dir/target-*/linux-*/linux-*/.kernelversion 2>/dev/null | head -1 || echo "未知")
+        echo "KERNEL_VER=$KERNEL_VER" >> $GITHUB_ENV
+
+    - name: 打包刷机包 (boot.img + system.img + 刷机脚本)
+      id: organize
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      run: |
+        cd openwrt/bin/targets/*/*
+        rm -rf packages
+        BOOT_IMG=$(ls *boot.img.gz *boot.img 2>/dev/null | head -1)
+        SYSTEM_IMG=$(ls *system.img.gz *system.img 2>/dev/null | head -1)
+        if [ -z "$BOOT_IMG" ] || [ -z "$SYSTEM_IMG" ]; then
+          echo "::error::固件文件未找到，编译可能失败！当前目录："
+          ls -la
+          exit 1
+        fi
+        mkdir -p flash_package
+        cp "$BOOT_IMG" flash_package/boot.img.gz
+        cp "$SYSTEM_IMG" flash_package/system.img.gz
+        gzip -dk flash_package/boot.img.gz
+        gzip -dk flash_package/system.img.gz
+        rm flash_package/boot.img.gz flash_package/system.img.gz
+        # 若仓库根存在 刷机脚本/ 目录（从 yulifei888/immortalwrt-Actios 复制而来），一并打包
+        if [ -d "$GITHUB_WORKSPACE/刷机脚本" ]; then
+          cp -r "$GITHUB_WORKSPACE/刷机脚本/." flash_package/ 2>/dev/null || true
+          unix2dos flash_package/*.bat 2>/dev/null || true
+          echo "已打包刷机脚本（一键刷机）。"
+        else
+          echo "提示：仓库根无 刷机脚本/ 目录，仅打包 boot.img+system.img。刷机工具请从源仓库复制后重跑，或本地刷机。"
+        fi
+        ZIP_NAME="OpenWrt_MF32${{ env.FILE_DATE }}_刷机包.zip"
+        cd flash_package && zip -r "../$ZIP_NAME" . && cd ..
+        mkdir -p release_files
+        mv "$ZIP_NAME" release_files/
+        cp *.manifest release_files/ 2>/dev/null || true
+        cp sha256sums release_files/ 2>/dev/null || true
+        echo "FIRMWARE=$PWD/release_files" >> $GITHUB_ENV
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: 上传固件目录 (Artifact)
+      uses: actions/upload-artifact@main
+      if: steps.organize.outputs.status == 'success' && !cancelled()
+      with:
+        name: OpenWrt_MF32${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+        path: ${{ env.FIRMWARE }}
+
+    - name: 生成 Release 说明
+      id: tag
+      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
+      run: |
+        RAW='${{ inputs.extra_packages }}'
+        CUSTOM_IP=$(echo "$RAW" | grep -oP '(?<=__ip__)[^,\s]+' || true)
+        CUSTOM_HOSTNAME=$(echo "$RAW" | grep -oP '(?<=__hostname__)[^,\s]+' || true)
+        DISPLAY_IP=${CUSTOM_IP:-192.168.1.1}
+        DISPLAY_HOSTNAME=${CUSTOM_HOSTNAME:-ImmortalWrt}
+        EXTRA=$(echo "$RAW" | sed 's/,/ /g' | tr ' ' '\n' | grep -v '^__ip__' | grep -v '^__hostname__' | sed '/^$/d')
+        echo "release_tag=$(date +"%Y.%m.%d-%H%M")-MF32" >> $GITHUB_OUTPUT
+        {
+          echo "## ImmortalWrt master · 高通410 MF32 随身WiFi"
+          echo ""
+          echo "| 项目 | 信息 |"
+          echo "|------|------|"
+          echo "| 编译者 | ${{ github.actor }} |"
+          echo "| 机型 | MF32 (msm89xx/msm8916) |"
+          echo "| 内核版本 | ${{ env.KERNEL_VER }} |"
+          echo "| 管理地址 | $DISPLAY_IP |"
+          echo "| 主机名 | $DISPLAY_HOSTNAME |"
+          echo "| 默认用户 | root |"
+          echo "| 默认密码 | 空 |"
+          echo ""
+          echo "### 额外添加的包"
+          if [ -n "$EXTRA" ]; then echo "$EXTRA" | sed 's/^/- /'; else echo "无"; fi
+          echo ""
+          echo "> ⚠️ 刷机前请务必全量备份原厂固件（尤其含基带校准的 fsc/fsg/modemst1/modemst2 等分区），丢失无法恢复。"
+        } >> release.txt
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: 上传到 Release
+      if: env.UPLOAD_RELEASE == 'true' && steps.organize.outputs.status == 'success'
+      uses: ncipollo/release-action@main
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag: ${{ steps.tag.outputs.release_tag }}
+        bodyFile: release.txt
+        artifacts: ${{ env.FIRMWARE }}/**/*
+        artifactErrorsFailBuild: false
+        allowUpdates: true
+        draft: false
+        prerelease: false
+
+    - name: 清理旧的工作流记录
+      if: always()
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        RETAIN_DAYS: 7
+        KEEP_MINIMUM_RUNS: 5
+      run: |
+        RUNS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+          "https://api.github.com/repos/${{ github.repository }}/actions/runs?per_page=100")
+        CUTOFF=$(date -d "-${RETAIN_DAYS} days" +%s)
+        DEL_IDS=$(echo "$RUNS" | jq -r --arg cutoff "$CUTOFF" --argjson keep "$KEEP_MINIMUM_RUNS" '
+          [.workflow_runs[]
+            | select((now - (.created_at | fromdateiso8601)) > ($cutoff | tonumber))
+            | {id, created_at}
+          ]
+          | sort_by(.created_at)
+          | .[:-$keep]
+          | .[].id
+        ')
+        if [[ -z "$DEL_IDS" ]]; then
+          echo "无需清理旧记录。"
+        else
+          echo "$DEL_IDS" | while read run_id; do
+            echo "删除 run $run_id"
+            curl -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/runs/$run_id"
+          done
+        fi

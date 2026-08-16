@@ -1,0 +1,8 @@
+# Put your custom commands here that should be executed once
+# the system init finished. By default this file does nothing.
+# 下面是启动小龙虾功能，需要把小龙虾传到root/picoclaw目录，权力给0777
+# 龙虾下载地址是https://picoclaw.io/download/，下载linux ARM64版本
+# cd /root/picoclaw && ./picoclaw-launcher -public > /root/picoclaw/picoclaw.log 2>&1 &
+# SimAdmin 这个是管理sim手机卡的程序，开源地址：https://github.com/3899/SimAdmin
+# cd /root/simadmin && ./simadmin > /root/simadmin/simadmin.log 2>&1 &
+exit 0
