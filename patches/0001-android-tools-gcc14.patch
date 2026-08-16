@@ -1,0 +1,22 @@
+--- a/core/adbd/adb.c
++++ b/core/adbd/adb.c
+@@ -36,6 +36,10 @@
+ #if !ADB_HOST
+ #include "android_filesystem_config.h"
+ #include <linux/capability.h>
++#include <sys/prctl.h>
++#include <sys/syscall.h>
++#include <grp.h>
++#include <unistd.h>
+ #include <linux/prctl.h>
+ #include <sys/mount.h>
+ #else
+@@ -1285,7 +1289,7 @@
+         header.pid = 0;
+         cap[CAP_TO_INDEX(CAP_SYS_BOOT)].effective |= CAP_TO_MASK(CAP_SYS_BOOT);
+         cap[CAP_TO_INDEX(CAP_SYS_BOOT)].permitted |= CAP_TO_MASK(CAP_SYS_BOOT);
+-        capset(&header, cap);
++        syscall(__NR_capset, &header, cap);
+ 
+         D("Local port disabled\n");
+     } else {

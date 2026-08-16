@@ -187,15 +187,8 @@ jobs:
       run: |
         cd openwrt
         make defconfig
-        # 强制禁用 gcc14 工具链下无法编译的旧包 android-tools（adb/fastboot/adbd）
-        # 它来自 openstick 目标 profile 的 DEVICE_PACKAGES，defconfig 会自动选上，
-        # 但其 2013 年代码在 gcc14+musl 下因 prctl/capset 隐式声明而编译失败。
-        # 该包仅提供路由器端 adb/fastboot 调试，非 MF32 刷机/启动必需，且 luci-app-mmconfig 不依赖它。
-        sed -i 's/^CONFIG_PACKAGE_android-tools=y/# CONFIG_PACKAGE_android-tools is not set/' .config
-        sed -i 's/^CONFIG_PACKAGE_android-tools-adbd=y/# CONFIG_PACKAGE_android-tools-adbd is not set/' .config
-        sed -i 's/^CONFIG_PACKAGE_adb=y/# CONFIG_PACKAGE_adb is not set/' .config
-        sed -i 's/^CONFIG_PACKAGE_fastboot=y/# CONFIG_PACKAGE_fastboot is not set/' .config
-        echo "== 已禁用的 android-tools 相关项 =="
+        # android-tools(adbd) 已通过 diy-part1.sh 注入的 gcc14 补丁修复，保留启用。
+        echo "== android-tools 相关项 =="
         grep -E 'android-tools|CONFIG_PACKAGE_adb|CONFIG_PACKAGE_fastboot' .config || true
 
     - name: 下载依赖
