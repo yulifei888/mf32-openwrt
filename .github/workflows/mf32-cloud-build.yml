@@ -187,8 +187,12 @@ jobs:
       run: |
         cd openwrt
         make defconfig
-        # android-tools(adbd) 已通过 diy-part1.sh 注入的 gcc14 补丁修复，保留启用。
-        echo "== android-tools 相关项 =="
+        # android-tools(adbd) 在 gcc14+musl 下因 prctl/capset 隐式声明编不过；
+        # 当前 diy-part1.sh 未携带 gcc14 补丁，这里强制禁用以保证出可用固件（仅失 USB ADB 调试）。
+        for c in android-tools android-tools-adbd adb fastboot; do
+          sed -i "s/^CONFIG_PACKAGE_${c}=.*$/# CONFIG_PACKAGE_${c} is not set/" .config
+        done
+        echo "== android-tools 相关项（应已禁用）=="
         grep -E 'android-tools|CONFIG_PACKAGE_adb|CONFIG_PACKAGE_fastboot' .config || true
 
     - name: 下载依赖
