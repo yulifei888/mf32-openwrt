@@ -1,0 +1,144 @@
+#!/bin/sh
+# ============================================================
+# MF32 电源键多功能处理 (OpenWrt / gpio-button-hotplug)
+# 由 procd/hotplug 在每次电源键事件时调用，环境变量：
+#   ACTION = pressed | released
+#   BUTTON = 按键名 (本脚本只处理 power / KEY_POWER)
+#   SEEN   = 按住时长，单位 10ms（仅 released 有意义）
+#   SEQID  = 事件序号
+#
+# 功能：
+#   1) 1 秒内双击        -> 进入“关机确认”态（全 LED 快闪 5s），期间再按一次才关机，否则自动取消
+#   2) 2~6 秒间隔双击     -> 关灯（4G 灯每 5s 短闪证明存活）
+#   3) 按住 6~10 秒松开   -> 重启网络（解决 RNDIS/意外断网）
+#   4) 按住 >=10 秒       -> 重启设备 (reboot)
+#
+# 依赖：kmod-gpio-button-hotplug（MF32 目标一般已带）
+# LED 名称因固件而异，脚本按 *4g*/*net*/*wwan* 自动匹配，匹配不到则操作全部 LED
+# ============================================================
+
+[ "$BUTTON" = "power" ] || [ "$BUTTON" = "KEY_POWER" ] || exit 0
+
+# ---------------- 可调参数 ----------------
+TAP_WINDOW=6        # 视为“第二次点击”的最大间隔(秒)
+DBL_FAST=1          # 间隔<=此值(秒) 的双击 => 进入关机确认
+DBL_SLOW=6          # 间隔<=此值(秒) 的双击 => 关灯
+LONG_NET=60         # SEEN>=此值(10ms) 且 < REBOOT => 重启网络(6s)
+REBOOT_HELD=100     # SEEN>=此值 => 重启设备(10s)
+CONFIRM_WAIT=5      # 关机确认窗口(秒)：窗口内再按=确认，超时=取消
+# ------------------------------------------
+
+STATE=/tmp/.pwr
+mkdir -p "$STATE"
+LED_OFF_FLAG=/tmp/.led_off
+SHUT_PENDING="$STATE/shutdown_pending"
+LOG="logger -t pwrbtn"
+leds_dir=/sys/class/leds
+
+find_4g_led() {
+  for l in "$leds_dir"/*; do
+    n=$(basename "$l")
+    case "$n" in *4g*|*net*|*wwan*|*signal*) echo "$l"; return;; esac
+  done
+  echo ""
+}
+ALL_LEDS=$(ls -d "$leds_dir"/* 2>/dev/null)
+FOURG=$(find_4g_led)
+
+led_set() { [ -e "$1/brightness" ] && echo "$2" > "$1/brightness" 2>/dev/null; }
+led_all_off() { for l in $ALL_LEDS; do led_set "$l" 0; done; }
+
+# 关灯态：4G 灯每 5s 短闪，其余全灭
+blink_4g_loop() {
+  while [ -f "$LED_OFF_FLAG" ]; do
+    [ -n "$FOURG" ] && { led_set "$FOURG" 255; sleep 0.2; led_set "$FOURG" 0; }
+    sleep 5
+  done
+}
+# 长按时 4G 灯快闪（视觉反馈，release 时杀掉）
+blink_feedback() {
+  while true; do
+    [ -n "$FOURG" ] && { led_set "$FOURG" 255; sleep 0.15; led_set "$FOURG" 0; sleep 0.35; }
+  done
+}
+
+case "$ACTION" in
+  pressed)
+    # 确认阶段（pending）的按下不额外反馈
+    [ -f "$SHUT_PENDING" ] && exit 0
+    # 启动快闪反馈（长按时能看到 4G 灯闪，松开即止）
+    nohup sh -c 'while true; do [ -n "'"$FOURG"'" ] && { echo 255 > "'"$FOURG"'/brightness" 2>/dev/null; sleep 0.15; echo 0 > "'"$FOURG"'/brightness" 2>/dev/null; sleep 0.35; }; done' >/dev/null 2>&1 &
+    echo $! > "$STATE/fbpid"
+    ;;
+
+  released)
+    # 杀掉按下时的快闪反馈
+    [ -f "$STATE/fbpid" ] && { kill "$(cat "$STATE/fbpid")" 2>/dev/null; rm -f "$STATE/fbpid"; }
+
+    # —— 关机确认态：这次按下即“确认关机” ——
+    if [ -f "$SHUT_PENDING" ]; then
+      $LOG "确认点击 -> 关机"
+      poweroff
+      exit 0
+    fi
+
+    SEEN=${SEEN:-0}
+    HELD=$(awk "BEGIN{print int($SEEN/100)}")
+    NOW=$(date +%s)
+
+    # 4) 超长按 -> 重启设备
+    if [ "$HELD" -ge "$REBOOT_HELD" ]; then
+      $LOG "长按 ${HELD}s -> 重启设备"
+      reboot
+      exit 0
+    fi
+    # 3) 长按 6~10s -> 重启网络
+    if [ "$HELD" -ge "$LONG_NET" ]; then
+      $LOG "长按 ${HELD}s -> 重启网络"
+      /etc/init.d/network restart
+      exit 0
+    fi
+
+    # 短按 = 一次点击，做双击判定
+    LAST=$(cat "$STATE/last" 2>/dev/null || echo 0)
+    GAP=$((NOW - LAST))
+    if [ "$GAP" -le "$TAP_WINDOW" ] && [ "$LAST" -ne 0 ]; then
+      # 第二次点击
+      if [ "$GAP" -le "$DBL_FAST" ]; then
+        # —— 进入关机确认态：全 LED 快闪警告，窗口内再按=确认，超时=取消 ——
+        $LOG "1s 内双击 -> 进入关机确认（${CONFIRM_WAIT}s 内再按确认，否则取消）"
+        touch "$SHUT_PENDING"
+        nohup sh -c 'while [ -f "'"$SHUT_PENDING"'" ]; do for l in /sys/class/leds/*/brightness; do echo 255 > "$l" 2>/dev/null; done; sleep 0.15; for l in /sys/class/leds/*/brightness; do echo 0 > "$l" 2>/dev/null; done; sleep 0.35; done' >/dev/null 2>&1 &
+        echo $! > "$STATE/warnpid"
+        # 取消计时器：超时未确认则恢复
+        ( sleep "$CONFIRM_WAIT"
+          if [ -f "$SHUT_PENDING" ]; then
+            rm -f "$SHUT_PENDING"
+            WP=$(cat "$STATE/warnpid" 2>/dev/null); [ -n "$WP" ] && kill "$WP" 2>/dev/null
+            rm -f "$STATE/warnpid"
+            if [ ! -f "$LED_OFF_FLAG" ]; then /etc/init.d/led restart 2>/dev/null; else led_all_off; fi
+            $LOG "关机已取消"
+          fi
+        ) &
+      elif [ "$GAP" -le "$DBL_SLOW" ]; then
+        $LOG "2-6s 双击 -> 切换关灯"
+        if [ -f "$LED_OFF_FLAG" ]; then
+          rm -f "$LED_OFF_FLAG"
+          /etc/init.d/led restart 2>/dev/null   # 恢复默认 LED 行为
+          $LOG "开灯"
+        else
+          touch "$LED_OFF_FLAG"
+          led_all_off
+          nohup sh -c 'while [ -f "'"$LED_OFF_FLAG"'" ]; do [ -n "'"$FOURG"'" ] && { echo 255 > "'"$FOURG"'/brightness" 2>/dev/null; sleep 0.2; echo 0 > "'"$FOURG"'/brightness" 2>/dev/null; }; sleep 5; done' >/dev/null 2>&1 &
+          $LOG "关灯（4G 灯保活闪）"
+        fi
+      fi
+      echo 0 > "$STATE/last"
+    else
+      # 第一次点击：记录时间，并在 TAP_WINDOW 秒后清理（避免残留误判）
+      echo "$NOW" > "$STATE/last"
+      ( sleep "$TAP_WINDOW"; [ "$(cat "$STATE/last" 2>/dev/null)" = "$NOW" ] && echo 0 > "$STATE/last" ) &
+    fi
+    ;;
+esac
+exit 0
