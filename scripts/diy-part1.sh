@@ -10,6 +10,9 @@ echo 'src-git smpackage https://github.com/kenzok8/small-package' >> feeds.conf.
 echo 'src-git store https://github.com/linkease/istore.git;main' >> feeds.conf.default
 
 # ========== 引入 openstick-feeds 源（使用你自己 fork 的 yulifei888/openstick-feeds）==========
+# 注意：lkiuyu/immortalwrt 自带的 feeds.conf.default 已有一个名为 openstick 的源，
+# 直接追加会同名报错（Duplicate feed name），所以先删掉原有 openstick 行，再注册我们的。
+sed -i '/openstick/d' feeds.conf.default
 # 浅克隆源码，加快速度
 git clone --depth 1 https://github.com/yulifei888/openstick-feeds.git feeds/openstick
 # 注册到 feeds 配置（本地路径，避免每次走网络）
