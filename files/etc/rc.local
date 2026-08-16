@@ -5,4 +5,8 @@
 # cd /root/picoclaw && ./picoclaw-launcher -public > /root/picoclaw/picoclaw.log 2>&1 &
 # SimAdmin 这个是管理sim手机卡的程序，开源地址：https://github.com/3899/SimAdmin
 # cd /root/simadmin && ./simadmin > /root/simadmin/simadmin.log 2>&1 &
+
+# 启用并启动 cron，驱动电量灯/4G 状态灯脚本
+/etc/init.d/cron enable 2>/dev/null
+/etc/init.d/cron start  2>/dev/null
 exit 0

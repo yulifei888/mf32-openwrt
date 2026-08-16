@@ -3,6 +3,9 @@ openwrt/
 bin/
 build.log
 
+# 但固件覆盖层里的脚本目录必须纳入跟踪（bin/ 会误伤 files/usr/bin/）
+!files/usr/bin/
+
 # OS files
 .DS_Store
 Thumbs.db

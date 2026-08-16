@@ -1,0 +1,2 @@
+*/1 * * * * /usr/bin/mf32-battery-led.sh
+*/1 * * * * /usr/bin/mf32-4g-led.sh
