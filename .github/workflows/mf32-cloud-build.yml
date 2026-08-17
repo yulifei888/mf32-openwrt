@@ -116,6 +116,7 @@ jobs:
 
     - name: 复制 files 覆盖层
       run: cp -rf files/. openwrt/files/ 2>/dev/null || true
+        chmod +x openwrt/files/usr/bin/*.sh openwrt/files/etc/rc.button/power openwrt/files/etc/rc.local 2>/dev/null || true
 
     - name: 载入自定义 feeds
       run: |
