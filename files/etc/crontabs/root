@@ -1,2 +1,2 @@
 */1 * * * * /usr/bin/mf32-battery-led.sh
-*/1 * * * * /usr/bin/mf32-4g-led.sh
+*/1 * * * * LED_4G_RED=red:power LED_4G_GREEN=green:wlan LED_4G_BLUE=blue:wan /usr/bin/mf32-4g-led.sh
