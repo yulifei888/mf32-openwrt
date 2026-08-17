@@ -53,9 +53,6 @@ for led in $BAT_LEDS; do
   i=$((i+1))
 done
 
-# ---------- 6) 充电时让最亮那颗 LED 闪烁（timer 触发器，无需循环）----------
-if [ "$STATUS" = "Charging" ] && [ "$LIT" -gt 0 ]; then
-  TOP=$(echo "$BAT_LEDS" | sed -n "${LIT}p")
-  [ -e "$TOP/trigger" ] && echo timer > "$TOP/trigger" 2>/dev/null
-fi
+# ---------- 6) 充电指示 ----------
+# 充电时电量灯已全部常亮（见第 5 步），本机 timer 触发器不稳定，故不再依赖
 exit 0
