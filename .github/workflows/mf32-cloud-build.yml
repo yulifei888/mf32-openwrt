@@ -1,6 +1,6 @@
 #
 # MF32 云编译 (OpenStick / 高通410 MSM8916 随身WiFi)
-# 基于 lkiuyu/immortalwrt (master, 含 msm89xx 目标) + yulifei888/openstick-feeds
+# 基于 yulifei888/immortalwrt（fork of lkiuyu/immortalwrt, master, 含 msm89xx 目标）
 # 一键编译并产出可刷机的 boot.img + system.img 刷机包
 #
 
@@ -27,7 +27,7 @@ on:
         type: string
 
 env:
-  REPO_URL: https://github.com/lkiuyu/immortalwrt
+  REPO_URL: https://github.com/yulifei888/immortalwrt
   REPO_BRANCH: master
   FEEDS_CONF: feeds.conf.default
   CONFIG_FILE: config/mf32.config
