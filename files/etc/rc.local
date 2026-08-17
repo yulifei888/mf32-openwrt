@@ -9,4 +9,13 @@
 # 启用并启动 cron，驱动电量灯/4G 状态灯脚本
 /etc/init.d/cron enable 2>/dev/null
 /etc/init.d/cron start  2>/dev/null
+
+# MF32 LED：电源灯常亮，并立即按电量点亮电池灯
+for LP in /sys/class/leds/red:power; do
+  [ -d "$LP" ] || continue
+  MAX=$(cat "$LP/max_brightness" 2>/dev/null); [ -z "$MAX" ] && MAX=1
+  echo none > "$LP/trigger" 2>/dev/null
+  echo "$MAX" > "$LP/brightness" 2>/dev/null
+done
+/usr/bin/mf32-battery-led.sh >/dev/null 2>&1 &
 exit 0

@@ -1,0 +1,9 @@
+#!/bin/sh
+# MF32 电源键：长按 4 秒以上关机
+[ "$BUTTON" = "power" ] || exit 0
+[ "$ACTION" = "released" ] || exit 0
+SEEN_VAL="${SEEN:-0}"
+if [ "$SEEN_VAL" -ge 4 ] 2>/dev/null; then
+  logger "power button long-press (${SEEN_VAL}s) -> poweroff"
+  poweroff
+fi

@@ -8,4 +8,3 @@ echo 'src-git smpackage https://github.com/kenzok8/small-package' >> feeds.conf.
 
 # 添加 iStore 应用商店（编译时在 extra_packages 里填 luci-app-store 即可装）
 echo 'src-git store https://github.com/linkease/istore.git;main' >> feeds.conf.default
-echo 'src-git openstick-feeds https://github.com/gxpeng/openstick-feeds' >> feeds.conf.default
