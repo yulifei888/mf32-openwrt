@@ -188,6 +188,15 @@ jobs:
       run: |
         cd openwrt
         make defconfig
+        # 防御：defconfig 偶发把 target 漂移到默认 mediatek（feeds recursive dependency 干扰 kconfig），强制锁定回 msm89xx/MF32
+        if ! grep -q '^CONFIG_TARGET_msm89xx_msm8916_DEVICE_openstick-mf32=y' .config; then
+          echo '::warning::defconfig target 漂移，重新锁定 msm89xx/MF32'
+          sed -i -E '/^CONFIG_TARGET_[a-z0-9_]+=y/d; /^# CONFIG_TARGET_.*is not set/d; /^CONFIG_TARGET_(BOARD|SUBTARGET|PROFILE|ARCH_PACKAGES)=/d' .config
+          printf 'CONFIG_TARGET_msm89xx=y\nCONFIG_TARGET_msm89xx_msm8916=y\nCONFIG_TARGET_msm89xx_msm8916_DEVICE_openstick-mf32=y\nCONFIG_TARGET_BOARD="msm89xx"\nCONFIG_TARGET_SUBTARGET="msm8916"\nCONFIG_TARGET_PROFILE="DEVICE_openstick-mf32"\nCONFIG_TARGET_ARCH_PACKAGES="aarch64_generic"\n' >> .config
+          make olddefconfig
+        fi
+        echo '== target 验证 =='
+        grep -E '^CONFIG_TARGET_BOARD=|^CONFIG_TARGET_PROFILE=' .config
         # android-tools(adbd) 已通过 diy-part1.sh 注入的 gcc14 补丁修复，保留启用。
         echo "== android-tools 相关项 =="
         grep -E 'android-tools|CONFIG_PACKAGE_adb|CONFIG_PACKAGE_fastboot' .config || true
