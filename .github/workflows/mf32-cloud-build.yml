@@ -194,20 +194,84 @@ jobs:
         echo "== android-tools 相关项 =="
         grep -E 'android-tools|CONFIG_PACKAGE_adb|CONFIG_PACKAGE_fastboot' .config || true
 
+    - name: 上传 .config / feeds.conf（调试 artifact）
+      uses: actions/upload-artifact@main
+      if: always()
+      with:
+        name: build-config-${{ github.run_id }}
+        path: |
+          openwrt/.config
+          openwrt/feeds.conf.default
+        include-hidden-files: true
+
+    - name: Cache dl
+      id: cache-dl
+      uses: actions/cache@v5
+      with:
+        path: openwrt/dl
+        key: dl-${{ runner.os }}-${{ steps.lock.outputs.locked_hash }}
+        restore-keys: |
+          dl-${{ runner.os }}-
+
     - name: 下载依赖
       run: |
         cd openwrt
+        if [[ "${{ steps.cache-dl.outputs.cache-hit }}" == "true" ]]; then
+          echo "✅ dl cache hit"
+        else
+          echo "⚠️ dl cache miss, downloading..."
+        fi
         make download -j4 V=s
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
+
+    - name: Compute toolchain hash
+      id: tc_hash
+      run: |
+        cd openwrt
+        TOOLCHAIN_COMMIT=$(git log -1 --format=%H -- toolchain/ include/toolchain-build.mk 2>/dev/null || echo "none")
+        echo "hash=$TOOLCHAIN_COMMIT" >> $GITHUB_OUTPUT
+        echo "toolchain commit: $TOOLCHAIN_COMMIT"
+
+    - name: Cache ccache
+      uses: actions/cache@v5
+      with:
+        path: ~/.ccache
+        key: ccache-${{ runner.os }}-${{ steps.tc_hash.outputs.hash }}
+        restore-keys: |
+          ccache-${{ runner.os }}-
+
+    - name: Cache toolchain
+      uses: actions/cache@v5
+      with:
+        path: |
+          openwrt/staging_dir/toolchain-*
+          openwrt/staging_dir/host
+          openwrt/build_dir/host
+          openwrt/build_dir/toolchain-*
+        key: toolchain-${{ runner.os }}-${{ steps.tc_hash.outputs.hash }}
+        restore-keys: |
+          toolchain-${{ runner.os }}-
+
+    - name: Configure ccache
+      run: |
+        which ccache >/dev/null 2>&1 || sudo apt-get -y install ccache
+        mkdir -p $HOME/.ccache
+        echo "max_size = 5G" > $HOME/.ccache/ccache.conf
+        echo "compiler_check = string:${{ steps.tc_hash.outputs.hash }}" >> $HOME/.ccache/ccache.conf
+        echo "ccache ready"
 
     - name: 编译固件
       id: compile
       run: |
         cd openwrt
-        echo -e "$(nproc) thread compile"
-        make -j$(nproc) || make -j1 V=s
+        echo -e "$(nproc) thread compile (ccache enabled)"
+        export CCACHE_DIR=$HOME/.ccache
+        export CCACHE_BASEDIR=$PWD
+        make -j$(nproc) CC="ccache gcc" CXX="ccache g++" || make -j1 V=s CC="ccache gcc" CXX="ccache g++"
         echo "status=success" >> $GITHUB_OUTPUT
+        echo "== ccache 统计 =="
+        ccache -s 2>/dev/null || true
         grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
         [ -s DEVICE_NAME ] && echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
         echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
