@@ -1,0 +1,5 @@
+config 4gmonitor '4gmonitor'
+	option enabled '1'
+	option interval '60'
+	option status '1'
+	option counts '3'

@@ -47,10 +47,10 @@ jobs:
     name: 编译 MF32 固件
     steps:
     - name: 🚀 拉取仓库
-      uses: actions/checkout@main
+      uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a # v4.2.2
 
     - name: 清理磁盘空间
-      uses: jlumbroso/free-disk-space@main
+      uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.2
       with:
         tool-cache: false
         android: false
@@ -108,9 +108,21 @@ jobs:
       working-directory: /mnt
       run: |
         df -hT $PWD
+        LOCK_HASH="${{ steps.lock.outputs.locked_hash }}"
         git clone $REPO_URL -b $REPO_BRANCH openwrt
-        if [ -n "${{ steps.lock.outputs.locked_hash }}" ]; then
-          cd openwrt && git checkout ${{ steps.lock.outputs.locked_hash }}
+        if [ -n "$LOCK_HASH" ]; then
+          # 先校验该 hash 确实存在于所克隆的仓库，否则 checkout 会静默失败导致用错版本
+          if ! git -C openwrt cat-file -e "${LOCK_HASH}^{commit}" 2>/dev/null; then
+            echo "::error::锁定 hash ($LOCK_HASH) 在 $REPO_URL 中不存在，请更新 upstream_lock.txt 或用 custom_hash 指定有效值"
+            exit 1
+          fi
+          cd openwrt && git checkout "$LOCK_HASH"
+          ACTUAL=$(git rev-parse HEAD)
+          if [ "$ACTUAL" != "$LOCK_HASH" ]; then
+            echo "::error::checkout 后 HEAD ($ACTUAL) 与锁定 hash ($LOCK_HASH) 不一致"
+            exit 1
+          fi
+          echo "已锁定到源码 hash: $LOCK_HASH"
         fi
         ln -sf /mnt/openwrt $GITHUB_WORKSPACE/openwrt
 
@@ -180,7 +192,7 @@ jobs:
         done
 
     - name: SSH 调试（可选）
-      uses: mxschmitt/action-tmate@master
+      uses: mxschmitt/action-tmate@c4658e2cd8a2789352e1400f38a57e78587a66f3 # master
       if: ${{ inputs.ssh || contains(github.event.action, 'ssh') }}
 
     - name: 生成最终配置
@@ -195,7 +207,7 @@ jobs:
         grep -E 'android-tools|CONFIG_PACKAGE_adb|CONFIG_PACKAGE_fastboot' .config || true
 
     - name: 上传 .config / feeds.conf（调试 artifact）
-      uses: actions/upload-artifact@main
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
       if: always()
       with:
         name: build-config-${{ github.run_id }}
@@ -206,7 +218,7 @@ jobs:
 
     - name: Cache dl
       id: cache-dl
-      uses: actions/cache@v5
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: openwrt/dl
         key: dl-${{ runner.os }}-${{ steps.lock.outputs.locked_hash }}
@@ -235,7 +247,7 @@ jobs:
         echo "toolchain commit: $TOOLCHAIN_COMMIT"
 
     - name: Cache ccache
-      uses: actions/cache@v5
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: ~/.ccache
         key: ccache-${{ runner.os }}-${{ steps.tc_hash.outputs.hash }}
@@ -244,7 +256,7 @@ jobs:
         save-always: true
 
     - name: Cache toolchain
-      uses: actions/cache@v5
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
       with:
         path: |
           openwrt/staging_dir/toolchain-*
@@ -321,7 +333,7 @@ jobs:
         echo "status=success" >> $GITHUB_OUTPUT
 
     - name: 上传固件目录 (Artifact)
-      uses: actions/upload-artifact@main
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
       if: steps.organize.outputs.status == 'success' && !cancelled()
       with:
         name: OpenWrt_MF32${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
@@ -360,7 +372,7 @@ jobs:
 
     - name: 上传到 Release
       if: env.UPLOAD_RELEASE == 'true' && steps.organize.outputs.status == 'success'
-      uses: ncipollo/release-action@main
+      uses: ncipollo/release-action@389305c50bc7406ce7e55077eb8b863e0f0a3083 # v1.15.0
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:

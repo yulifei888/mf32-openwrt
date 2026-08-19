@@ -1,0 +1,23 @@
+#!/bin/sh
+# 固化 4G 接口 + APN（首启用 uci 执行，不替换整个 network 文件，避免冲掉默认 lan/wan）
+# 建立 proto=modemmanager 的 wwan 接口（APN 留空=ModemManager 按运营商库自动选）
+# 并加入 wan 防火墙区（NAT 出网）
+
+# 建立 wwan 接口（已存在则跳过）
+uci -q get network.wwan >/dev/null || {
+  uci set network.wwan=interface
+  uci set network.wwan.proto='modemmanager'
+  uci set network.wwan.apn=''
+  uci commit network
+}
+
+# 加入 wan 防火墙区（若尚未加入）
+z=$(uci show firewall 2>/dev/null | sed -n 's/^firewall\.@zone\[\([0-9]*\)\]\.name=wan$/\1/p' | head -1)
+if [ -n "$z" ]; then
+  list=$(uci get firewall.@zone[$z].network 2>/dev/null)
+  echo "$list" | grep -qw wwan || {
+    uci add_list firewall.@zone[$z].network='wwan'
+    uci commit firewall
+  }
+fi
+exit 0

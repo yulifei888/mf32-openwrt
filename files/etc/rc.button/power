@@ -1,13 +1,49 @@
 #!/bin/sh
-# MF32 电源键：长按 4 秒以上松开 -> 关机
+# MF32 电源键多击操作（借鉴 openstick-ledmonitor-mf32 的双 lockfile 窗口判定）：
+#   单击  -> 切换 LED 显示（进入/退出 sleeping 省电模式）
+#   双击  -> 关机
+#   长按 >=6s -> 重启网络(modemmanager + 接口)
 # 兼容 button-hotplug 的 ACTION 命名（released / release）
 [ "$BUTTON" = "power" ] || [ -z "$BUTTON" ] || exit 0
 case "$ACTION" in
   released|release) : ;;
   *) exit 0 ;;
 esac
-SEEN_VAL="${SEEN:-0}"
-if [ "$SEEN_VAL" -ge 4 ] 2>/dev/null; then
-  logger "power button long-press (${SEEN_VAL}s) -> poweroff"
-  poweroff
+
+LOCK=/var/run/mf32_btn.lock
+CNT=0
+if [ -f "$LOCK" ]; then
+  CNT=$(cat "$LOCK" 2>/dev/null)
+  # 超过双击窗(约 2s)则重置计数
+  a=$(date +%s); m=$(stat -c %Y "$LOCK" 2>/dev/null || echo 0)
+  age=$(( a - m ))
+  [ "$age" -gt 2 ] && CNT=0
 fi
+CNT=$((CNT + 1))
+echo "$CNT" > "$LOCK"
+touch "$LOCK"
+
+# 长按：SEEN >= 6 -> 重启网络
+SEEN_VAL="${SEEN:-0}"
+if [ "$SEEN_VAL" -ge 6 ] 2>/dev/null; then
+  logger "power long-press (${SEEN_VAL}s) -> restart network"
+  service modemmanager restart 2>/dev/null
+  for n in modem wwan; do ifstatus "$n" >/dev/null 2>&1 && ifup "$n" 2>/dev/null; done
+  rm -f "$LOCK"
+  exit 0
+fi
+
+if [ "$CNT" -ge 2 ]; then
+  # 双击 -> 关机
+  logger "power double-click -> poweroff"
+  rm -f "$LOCK"
+  poweroff
+elif [ "$CNT" -eq 1 ]; then
+  # 单击 -> 切换 sleeping
+  if [ -f /var/run/mf32_led_sleep ]; then
+    rm -f /var/run/mf32_led_sleep
+  else
+    touch /var/run/mf32_led_sleep
+  fi
+fi
+exit 0

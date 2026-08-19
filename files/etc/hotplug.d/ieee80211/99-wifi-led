@@ -1,17 +1,29 @@
 #!/bin/sh
 # MF32 WiFi 状态灯：blue:wlan
+# 借鉴点：UCI 开关 + 写灯前去抖（先读后写）+ sleeping 模式不亮。
+CFG=/etc/config/mf32led
+uci_get() { uci -q get "$CFG.$1" 2>/dev/null; }
+[ "$(uci_get mf32led.led)" = "0" ] && exit 0
+[ "$(uci_get mf32led.wifi)" = "0" ] && exit 0
+
 LED="/sys/class/leds/blue:wlan"
 [ -d "$LED" ] || exit 0
 MAX=$(cat "$LED/max_brightness" 2>/dev/null); [ -z "$MAX" ] && MAX=1
+
 case "$ACTION" in
   add)
     [ "$DEVICENAME" = "phy0" ] || exit 0
-    echo none > "$LED/trigger" 2>/dev/null
-    echo "$MAX" > "$LED/brightness" 2>/dev/null
+    # sleeping 模式不亮 WiFi 灯
+    if [ -f /var/run/mf32_led_sleep ] || [ "$(uci_get mf32led.sleep)" = "1" ]; then
+      echo none > "$LED/trigger" 2>/dev/null; echo 0 > "$LED/brightness" 2>/dev/null; exit 0
+    fi
+    cur=$(cat "$LED/brightness" 2>/dev/null)
+    [ "$cur" = "$MAX" ] || { echo none > "$LED/trigger" 2>/dev/null; echo "$MAX" > "$LED/brightness" 2>/dev/null; }
     ;;
   remove)
     [ "$DEVICENAME" = "phy0" ] || exit 0
-    echo none > "$LED/trigger" 2>/dev/null
-    echo 0 > "$LED/brightness" 2>/dev/null
+    cur=$(cat "$LED/brightness" 2>/dev/null)
+    [ "$cur" = "0" ] || { echo none > "$LED/trigger" 2>/dev/null; echo 0 > "$LED/brightness" 2>/dev/null; }
     ;;
 esac
+exit 0

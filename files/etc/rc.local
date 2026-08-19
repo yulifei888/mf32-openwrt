@@ -1,14 +1,18 @@
 #!/bin/sh
 # MF32 开机脚本
 # 1) 立即刷一次电量灯（不等差 cron 第一分钟）
-# 2) 启动 4G 状态灯守护进程（红/绿/蓝三色闪烁，轮询 mmcli）
-# 3) 启动 cron 守护（每分钟跑电量脚本，刷新 bat_1~4）
+# 2) 启动 4G 状态灯守护进程（procd 托管，红/绿/蓝三色闪烁，轮询 mmcli）
+# 3) 启动 4G 联网看门狗（cron 周期拉起，假死自动重启接口）
+# 4) 启动 cron 守护（电量灯每分钟刷新依赖它）
 
 # 立即刷一次电量灯（后台，不阻塞启动）
 /usr/bin/mf32-battery-led.sh &
 
-# 启动 4G 状态灯守护进程（断电/注册中/联网 -> 红/绿/蓝闪烁）
-/usr/bin/mf32-modem-led.sh >/dev/null 2>&1 &
+# 4G 状态灯守护进程（procd 托管，异常自动 respawn）
+/etc/init.d/mf32-modem-led start &
+
+# 4G 联网看门狗（写入 cron 条目 + 立即跑一轮）
+/etc/init.d/4gmonitor boot &
 
 # 启动 cron 守护进程（电量灯每分钟刷新依赖它）
 if [ -x /etc/init.d/cron ]; then

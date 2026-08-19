@@ -1,0 +1,80 @@
+#!/bin/sh /etc/rc.common
+# MF32 4G 联网看门狗（借鉴 openstick-4gmonitor，翻译为 shell 覆盖层，零编译依赖）
+# - 由 cron 每分钟拉起 start -> monitor
+# - mmcli 状态机：registered(已注册基站但无数据会话=假死) 累计 >= counts 次 -> 重启接口
+# 改进：接口名自适应（探测 modemmanager 协议接口，回退 wwan/modem）、pidfile 防重叠、POSIX 化、新增 status 命令
+START=99
+STOP=10
+
+PIDF=/var/run/mf32-4gmonitor.pid
+CONF=/etc/config/4gmonitor
+uci_get() { uci -q get "$CONF.$1" 2>/dev/null; }
+
+get_modem_iface() {
+  # 自适应探测 proto=modemmanager 的接口，回退 wwan/modem
+  for n in $(uci show network 2>/dev/null | sed -n "s/^network\.\([^.]*\)\.proto='\?modemmanager'\?.*/\1/p"); do
+    echo "$n"; return
+  done
+  for n in wwan modem; do ifstatus "$n" >/dev/null 2>&1 && { echo "$n"; return; }; done
+  echo wwan
+}
+
+monitor() {
+  # 防止重叠：已有实例在跑则退出
+  [ -f "$PIDF" ] && kill -0 "$(cat "$PIDF" 2>/dev/null)" 2>/dev/null && return
+  echo $$ > "$PIDF"
+  trap 'rm -f "$PIDF"' EXIT
+
+  enabled=$(uci_get 4gmonitor.enabled)
+  [ "$enabled" = "0" ] && exit 0
+
+  iface=$(get_modem_iface)
+  counts_max=$(uci_get 4gmonitor.counts); [ -z "$counts_max" ] && counts_max=3
+
+  check=0
+  i=0
+  while [ "$i" -lt 5 ]; do
+    i=$((i + 1))
+    st=$(mmcli -m any 2>/dev/null | grep -E "^[[:space:]]*state: " | head -1 | sed "s/.*'\([a-z]*\)'.*/\1/")
+    case "$st" in
+      connected|connecting) check=0;;
+      registered|registering|searching) check=$((check + 1));;
+      *) check=0;;
+    esac
+    [ "$check" -ge "$counts_max" ] && break
+    sleep 10
+  done
+
+  if [ "$check" -ge "$counts_max" ]; then
+    logger "4gmonitor: modem 疑似假死(state=$st)，重启接口 $iface"
+    ubus call network.interface."$iface" down 2>/dev/null
+    sleep 2
+    ubus call network.interface."$iface" up 2>/dev/null
+  fi
+  rm -f "$PIDF"
+}
+
+boot() {
+  # 写入 cron 条目（幂等）：每分钟拉起 monitor
+  crontab -l 2>/dev/null | grep -q "/etc/init.d/4gmonitor start" || \
+    ( crontab -l 2>/dev/null; echo "*/1 * * * * /etc/init.d/4gmonitor start" ) | crontab -
+  start
+}
+
+start() {
+  monitor
+}
+
+status() {
+  iface=$(get_modem_iface)
+  st=$(mmcli -m any 2>/dev/null | grep -E "^[[:space:]]*state: " | head -1 | sed "s/.*'\([a-z]*\)'.*/\1/")
+  echo "modem iface: $iface"
+  echo "modem state: ${st:-unknown}"
+  echo "enabled:     $(uci_get 4gmonitor.enabled)"
+  echo "counts:      $(uci_get 4gmonitor.counts)"
+}
+
+stop() {
+  [ -f "$PIDF" ] && kill "$(cat "$PIDF" 2>/dev/null)" 2>/dev/null
+  rm -f "$PIDF"
+}

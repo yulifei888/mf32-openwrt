@@ -1,0 +1,12 @@
+#!/bin/sh /etc/rc.common
+# MF32 4G 状态灯守护进程（procd 托管，异常退出自动 respawn）
+USE_PROCD=1
+START=99
+STOP=10
+
+start_service() {
+  procd_open_instance
+  procd_set_param command /usr/bin/mf32-modem-led.sh
+  procd_set_param respawn
+  procd_close_instance
+}

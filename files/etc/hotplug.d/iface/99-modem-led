@@ -1,14 +1,5 @@
 #!/bin/sh
-# MF32 4G 灯改由 mf32-modem-led.sh 守护进程轮询 modem 状态控制（红/绿/蓝三色闪烁）。
-# 此 hotplug 脚本仅负责确保守护进程在跑（pidfile 去重），不再直接写 LED（避免抢灯）。
-PIDF=/var/run/mf32-modem-led.pid
-RUNNING=0
-if [ -f "$PIDF" ]; then
-  OPID=$(cat "$PIDF" 2>/dev/null | tr -d '\n')
-  [ -n "$OPID" ] && kill -0 "$OPID" 2>/dev/null && RUNNING=1
-fi
-if [ "$RUNNING" -ne 1 ]; then
-  rm -f "$PIDF"
-  ( /usr/bin/mf32-modem-led.sh >/dev/null 2>&1 & )
-fi
+# MF32 4G 灯由 mf32-modem-led.sh 守护进程控制（红/绿/蓝三色闪烁，轮询 mmcli）。
+# 此 hotplug 仅确保守护进程在跑（幂等调用 procd 服务，已运行则 no-op），不再自行拉进程。
+/etc/init.d/mf32-modem-led start >/dev/null 2>&1
 exit 0

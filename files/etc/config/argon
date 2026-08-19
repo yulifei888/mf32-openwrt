@@ -1,9 +1,0 @@
-config global
-	option primary '#a855f7'
-	option dark_primary '#7c3aed'
-	option blur '0'
-	option blur_dark '0'
-	option transparency '0.3'
-	option transparency_dark '0.3'
-	option mode 'normal'
-	option online_wallpaper 'none'

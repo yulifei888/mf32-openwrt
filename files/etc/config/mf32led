@@ -1,0 +1,7 @@
+config mf32led 'mf32led'
+	option led '1'
+	option battery '1'
+	option modem '1'
+	option wifi '1'
+	option sleep '0'
+	option use_capacity '1'
