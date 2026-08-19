@@ -1,7 +1,11 @@
 #!/bin/sh
-# MF32 电源键：长按 4 秒以上关机
-[ "$BUTTON" = "power" ] || exit 0
-[ "$ACTION" = "released" ] || exit 0
+# MF32 电源键：长按 4 秒以上松开 -> 关机
+# 兼容 button-hotplug 的 ACTION 命名（released / release）
+[ "$BUTTON" = "power" ] || [ -z "$BUTTON" ] || exit 0
+case "$ACTION" in
+  released|release) : ;;
+  *) exit 0 ;;
+esac
 SEEN_VAL="${SEEN:-0}"
 if [ "$SEEN_VAL" -ge 4 ] 2>/dev/null; then
   logger "power button long-press (${SEEN_VAL}s) -> poweroff"
