@@ -212,6 +212,7 @@ jobs:
         key: dl-${{ runner.os }}-${{ steps.lock.outputs.locked_hash }}
         restore-keys: |
           dl-${{ runner.os }}-
+        save-always: true
 
     - name: 下载依赖
       run: |
@@ -240,6 +241,7 @@ jobs:
         key: ccache-${{ runner.os }}-${{ steps.tc_hash.outputs.hash }}
         restore-keys: |
           ccache-${{ runner.os }}-
+        save-always: true
 
     - name: Cache toolchain
       uses: actions/cache@v5
@@ -252,6 +254,7 @@ jobs:
         key: toolchain-${{ runner.os }}-${{ steps.tc_hash.outputs.hash }}
         restore-keys: |
           toolchain-${{ runner.os }}-
+        save-always: true
 
     - name: Configure ccache
       run: |
