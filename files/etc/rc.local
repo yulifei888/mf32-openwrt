@@ -1,21 +1,20 @@
-# Put your custom commands here that should be executed once
-# the system init finished. By default this file does nothing.
-# 下面是启动小龙虾功能，需要把小龙虾传到root/picoclaw目录，权力给0777
-# 龙虾下载地址是https://picoclaw.io/download/，下载linux ARM64版本
-# cd /root/picoclaw && ./picoclaw-launcher -public > /root/picoclaw/picoclaw.log 2>&1 &
-# SimAdmin 这个是管理sim手机卡的程序，开源地址：https://github.com/3899/SimAdmin
-# cd /root/simadmin && ./simadmin > /root/simadmin/simadmin.log 2>&1 &
+#!/bin/sh
+# MF32 开机脚本
+# 1) 立即刷一次电量灯（不等差 cron 第一分钟）
+# 2) 启动 4G 状态灯守护进程（红/绿/蓝三色闪烁，轮询 mmcli）
+# 3) 启动 cron 守护（每分钟跑电量脚本，刷新 bat_1~4）
 
-# 启用并启动 cron，驱动电量灯/4G 状态灯脚本
-/etc/init.d/cron enable 2>/dev/null
-/etc/init.d/cron start  2>/dev/null
+# 立即刷一次电量灯（后台，不阻塞启动）
+/usr/bin/mf32-battery-led.sh &
 
-# MF32 LED：电源灯常亮，并立即按电量点亮电池灯
-for LP in /sys/class/leds/red:power; do
-  [ -d "$LP" ] || continue
-  MAX=$(cat "$LP/max_brightness" 2>/dev/null); [ -z "$MAX" ] && MAX=1
-  echo none > "$LP/trigger" 2>/dev/null
-  echo "$MAX" > "$LP/brightness" 2>/dev/null
-done
-/usr/bin/mf32-battery-led.sh >/dev/null 2>&1 &
+# 启动 4G 状态灯守护进程（断电/注册中/联网 -> 红/绿/蓝闪烁）
+/usr/bin/mf32-modem-led.sh >/dev/null 2>&1 &
+
+# 启动 cron 守护进程（电量灯每分钟刷新依赖它）
+if [ -x /etc/init.d/cron ]; then
+  /etc/init.d/cron start 2>/dev/null
+elif command -v crond >/dev/null 2>&1; then
+  crond 2>/dev/null
+fi
+
 exit 0
