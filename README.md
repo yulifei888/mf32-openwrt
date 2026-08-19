@@ -24,7 +24,7 @@
 │   └── mf32.config               # MF32 完整编译配置（8202 行，含全部插件/驱动）
 ├── scripts/
 │   ├── diy-part1.sh              # 编译前：添加 small-package / istore 软件源
-│   └── diy-part2.sh              # 编译后：修改默认主题等为 argon
+│   └── diy-part2.sh              # 编译后：设置默认主题（openwrt-2020；argon 已移除）
 ├── files/                        # 编译时覆盖进固件的系统文件（rc.local、opkg、cardswitch、首页）
 ├── upstream_lock.txt            # 锁定的上游 commit hash（防上游改动导致编译失败）
 └── README.md
@@ -84,6 +84,42 @@ __ip__192.168.10.1 __hostname__MyMF32 luci-app-openclash
 > 工作流会自动把它打进 zip。该目录含 Windows 二进制工具，不强制需要也能编译出镜像。
 
 首次刷入（原厂安卓 → OpenWrt）请务必先看原仓库 README 与刷机教程图，按步骤并先备份分区。
+
+---
+
+## 已内置插件与功能
+
+以下为本次配置固化进固件的内容：软件包来自 `config/mf32.config`，功能脚本来自 `files/` 覆盖层（均为 shell / UCI，零编译依赖即可生效）。
+
+### LuCI 应用（显式选中）
+- `luci-app-mmconfig`：4G 模组频段 / 模式配置界面（ACL 已收紧为「登录后可读写」，原实现为未认证即可改）
+- `luci-app-ttyd`：网页终端
+- `luci-app-cpu-perf` / `luci-app-cpu-status`：CPU 性能模式与状态
+- `luci-app-temp-status`：温度状态
+- `luci-app-firewall`：防火墙
+- `luci-app-package-manager`：软件包管理（opkg GUI）
+- `luci-app-gc`：存储空间清理
+- `luci-app-bmx6`：BMX6 mesh 路由
+
+### 4G / Modem 相关包与驱动
+- `modemmanager` + `libmbim` + `libqmi`：ModemManager 及 MBIM / QMI 调制解调支持
+- `luci-proto-modemmanager`：LuCI 中 ModemManager 上网协议
+- `comgt` + `comgt-ncm`：Option / NCM 拨号工具
+- `iwinfo`：无线信息（WiFi LED 检测使用）
+
+### 主题
+- `luci-theme-openwrt-2020`（默认主题）。**已移除 `luci-theme-argon` 及其配置 App**，避免界面依赖问题。
+
+### 自定义功能（files/ 覆盖层）
+- **4G 联网看门狗**：`/etc/init.d/4gmonitor` + `/etc/config/4gmonitor`，每分钟检测，registered 假死 >3 次自动重启 wwan 接口。
+- **网络初始化**：`files/etc/uci-defaults/99-mf32-network`，首启用固化 `network.wwan`（proto=modemmanager，APN 留空自动）+ 加入 wan 防火墙区（NAT 出网）。
+- **LED 状态显示**：`mf32-battery-led.sh` / `mf32-charge-blink.sh` / `mf32-modem-led.sh`（`init.d/mf32-modem-led` 由 procd 守护，断线自动拉起），由 `/etc/config/mf32led` UCI 统一开关；覆盖 bat_1~4 电量灯与 red:power / green:wlan / blue:wan / blue:wlan 状态灯，含直读 capacity、写灯去抖、sleeping 省电模式。
+- **WiFi LED**：`hotplug.d/ieee80211/99-wifi-led`，UCI 开关 + 去抖 + sleeping 不亮。
+- **电源键多击**：`rc.button/power`——单击切灯 / 双击关机 / 长按 ≥6s 重启网络。
+- **切卡**：`files/etc/cardswitch/cardswitch.sh`（已重写为 case 结构，修 bashism）。
+- **opkg 源修正**：`files/etc/opkg/distfeeds.conf` core 源指向 `targets/msm89xx/msm8916/packages`，全线快照源，避免刷机后装 kmod 失败。
+
+> 说明：以上功能均为 shell / UCI 覆盖层，不引入需编译的 C 包；如需增删插件优先用工作流 `extra_packages`。
 
 ---
 
