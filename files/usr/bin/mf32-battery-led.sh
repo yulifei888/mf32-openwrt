@@ -45,7 +45,7 @@ if [ "$STATUS" = "Charging" ]; then
   fi
   if [ "$RUNNING" -ne 1 ]; then
     rm -f "$BLINK_PIDF"
-    /usr/bin/mf32-charge-blink.sh >/dev/null 2>&1 &
+    ( /usr/bin/mf32-charge-blink.sh >/dev/null 2>&1 & )
   fi
 else
   # 非充电：确保守护进程退出，全部按 SEG 常亮
