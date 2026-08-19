@@ -1,11 +1,16 @@
 #!/bin/sh
 # MF32 电量灯：PM8916 BMS-VM 驱动只暴露电压、不暴露 capacity，
 # 故用 voltage_ocv(优先)/voltage_now 配合 min/max 设计电压线性估算百分比。
+# 充电中(status=Charging) 拉起 mf32-charge-blink.sh 让当前最高那颗(bat_SEG)呼吸闪烁。
 LEDS="bat_1 bat_2 bat_3 bat_4"
 NODE=""
 for d in /sys/class/power_supply/*/; do
   [ -e "${d}voltage_ocv" ] || [ -e "${d}voltage_now" ] && NODE="$d" && break
 done
+STATUS=""
+if [ -n "$NODE" ]; then
+  [ -r "${NODE}status" ] && STATUS=$(cat "${NODE}status" 2>/dev/null | tr -d '\n')
+fi
 if [ -z "$NODE" ]; then
   LEVEL=100   # 找不到任何电量源：4 颗全亮作"已通电"指示
 else
@@ -29,16 +34,42 @@ fi
 SEG=$(( (LEVEL + 24) / 25 ))   # 0-4 段
 [ "$SEG" -lt 1 ] && SEG=1
 [ "$SEG" -gt 4 ] && SEG=4
-i=1
-for led in $LEDS; do
-  p="/sys/class/leds/$led"
-  [ -d "$p" ] || { i=$((i+1)); continue; }
-  MAX=$(cat "$p/max_brightness" 2>/dev/null); [ -z "$MAX" ] && MAX=1
-  echo none > "$p/trigger" 2>/dev/null
-  if [ "$i" -le "$SEG" ]; then
-    echo "$MAX" > "$p/brightness" 2>/dev/null
-  else
-    echo 0 > "$p/brightness" 2>/dev/null
+
+BLINK_PIDF=/var/run/mf32-charge-blink.pid
+if [ "$STATUS" = "Charging" ]; then
+  # 充电：拉起呼吸闪烁守护进程（它独占 bat_SEG），其余低段常亮
+  RUNNING=0
+  if [ -f "$BLINK_PIDF" ]; then
+    OPID=$(cat "$BLINK_PIDF" 2>/dev/null | tr -d '\n')
+    [ -n "$OPID" ] && kill -0 "$OPID" 2>/dev/null && RUNNING=1
   fi
-  i=$((i+1))
-done
+  if [ "$RUNNING" -ne 1 ]; then
+    rm -f "$BLINK_PIDF"
+    /usr/bin/mf32-charge-blink.sh >/dev/null 2>&1 &
+  fi
+  i=1
+  for led in $LEDS; do
+    [ "$i" -ge "$SEG" ] && break   # bat_SEG 交给守护进程闪烁
+    p="/sys/class/leds/$led"; [ -d "$p" ] || { i=$((i+1)); continue; }
+    MAX=$(cat "$p/max_brightness" 2>/dev/null); [ -z "$MAX" ] && MAX=1
+    echo none > "$p/trigger" 2>/dev/null
+    echo "$MAX" > "$p/brightness" 2>/dev/null
+    i=$((i+1))
+  done
+else
+  # 非充电：确保守护进程退出，全部按 SEG 常亮
+  if [ -f "$BLINK_PIDF" ]; then
+    OPID=$(cat "$BLINK_PIDF" 2>/dev/null | tr -d '\n')
+    [ -n "$OPID" ] && kill "$OPID" 2>/dev/null
+    rm -f "$BLINK_PIDF"
+  fi
+  i=1
+  for led in $LEDS; do
+    p="/sys/class/leds/$led"; [ -d "$p" ] || { i=$((i+1)); continue; }
+    MAX=$(cat "$p/max_brightness" 2>/dev/null); [ -z "$MAX" ] && MAX=1
+    echo none > "$p/trigger" 2>/dev/null
+    if [ "$i" -le "$SEG" ]; then echo "$MAX" > "$p/brightness" 2>/dev/null
+    else echo 0 > "$p/brightness" 2>/dev/null; fi
+    i=$((i+1))
+  done
+fi
