@@ -1,37 +1,31 @@
 #!/bin/sh
-# MF32 充电呼吸闪烁守护进程：status=Charging 时让当前最高电量颗(bat_SEG)亮灭交替。
+# MF32 充电跑马灯守护进程：status=Charging 时让 bat_1~bat_4 依次点亮循环（跑马灯）。
 # 由 mf32-battery-led.sh 在充电时拉起；非充电或本进程被杀即退出。
-# 注意：MF32 上 LED 的 timer 触发不生效，只能用脚本周期翻转 brightness 实现闪烁。
+# 注意：MF32 上 LED 的 timer 触发不生效，只能用脚本周期翻转 brightness 实现。
 PIDF=/var/run/mf32-charge-blink.pid
 echo $$ > "$PIDF"
-trap 'rm -f "$PIDF"' EXIT
+trap 'for n in 1 2 3 4; do p="/sys/class/leds/bat_$n"; [ -d "$p" ] && { echo none > "$p/trigger" 2>/dev/null; echo 0 > "$p/brightness" 2>/dev/null; }; done; rm -f "$PIDF"' EXIT
 
 NODE=""
 for d in /sys/class/power_supply/*/; do
   [ -e "${d}voltage_now" ] && NODE="$d" && break
 done
-VMIN=3000000; VMAX=4200000
-if [ -n "$NODE" ]; then
-  [ -r "${NODE}voltage_min_design" ] && VMIN=$(cat "${NODE}voltage_min_design" 2>/dev/null | tr -d '\n')
-  [ -r "${NODE}voltage_max_design" ] && VMAX=$(cat "${NODE}voltage_max_design" 2>/dev/null | tr -d '\n')
-fi
-seg_of() {
-  V=$(cat "${1}voltage_now" 2>/dev/null | tr -d '\n')
-  if [ -z "$V" ] || [ "$V" -eq 0 ] 2>/dev/null || [ -z "$VMIN" ] || [ "$VMIN" -eq 0 ] 2>/dev/null; then
-    echo 4; return
-  fi
-  PCT=$(( (V - VMIN) * 100 / (VMAX - VMIN) )); [ "$PCT" -lt 0 ] && PCT=0; [ "$PCT" -gt 100 ] && PCT=100
-  S=$(( (PCT + 24) / 25 )); [ "$S" -lt 1 ] && S=1; [ "$S" -gt 4 ] && S=4
-  echo $S
+max_of() {
+  m=$(cat "/sys/class/leds/$1/max_brightness" 2>/dev/null); [ -z "$m" ] && m=1; echo "$m"
 }
+# 跑马灯：每次只亮一颗，从 bat_1 走到 bat_4 循环
 while true; do
   st=$(cat "${NODE}status" 2>/dev/null)
   [ "$st" = "Charging" ] || exit 0
-  SEG=$(seg_of "$NODE")
-  LED="/sys/class/leds/bat_${SEG}"
-  [ -d "$LED" ] || { sleep 2; continue; }
-  MAX=$(cat "$LED/max_brightness" 2>/dev/null); [ -z "$MAX" ] && MAX=1
-  echo none > "$LED/trigger" 2>/dev/null
-  echo "$MAX" > "$LED/brightness" 2>/dev/null; sleep 1
-  echo 0 > "$LED/brightness" 2>/dev/null; sleep 1
+  for i in 1 2 3 4; do
+    st=$(cat "${NODE}status" 2>/dev/null)
+    [ "$st" = "Charging" ] || exit 0
+    for j in 1 2 3 4; do
+      p="/sys/class/leds/bat_$j"; [ -d "$p" ] || continue
+      echo none > "$p/trigger" 2>/dev/null
+      if [ "$j" = "$i" ]; then echo "$(max_of bat_$j)" > "$p/brightness" 2>/dev/null
+      else echo 0 > "$p/brightness" 2>/dev/null; fi
+    done
+    sleep 0.3
+  done
 done
