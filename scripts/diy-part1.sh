@@ -9,5 +9,8 @@ echo 'src-git smpackage https://github.com/kenzok8/small-package' >> feeds.conf.
 # 添加 iStore 应用商店（编译时在 extra_packages 里填 luci-app-store 即可装）
 echo 'src-git store https://github.com/linkease/istore.git;main' >> feeds.conf.default
 
+# 添加 kenzok8/openwrt-packages 源（提供 luci-theme-glass 毛玻璃侧边栏主题）
+echo 'src-git kenzok8 https://github.com/kenzok8/openwrt-packages' >> feeds.conf.default
+
 # （可选）OpenStick 专用软件源，本项目默认不启用；如需请取消下一行注释
 # echo 'src-git openstick https://github.com/yulifei888/openstick-feeds' >> feeds.conf.default

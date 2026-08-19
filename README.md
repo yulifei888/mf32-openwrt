@@ -24,7 +24,7 @@
 │   └── mf32.config               # MF32 完整编译配置（8202 行，含全部插件/驱动）
 ├── scripts/
 │   ├── diy-part1.sh              # 编译前：添加 small-package / istore 软件源
-│   └── diy-part2.sh              # 编译后：设置默认主题（openwrt-2020；argon 已移除）
+│   └── diy-part2.sh              # 编译后：默认主题由 glass 包 uci-defaults 自动设置
 ├── files/                        # 编译时覆盖进固件的系统文件（rc.local、opkg、cardswitch、首页）
 ├── upstream_lock.txt            # 锁定的上游 commit hash（防上游改动导致编译失败）
 └── README.md
@@ -108,7 +108,7 @@ __ip__192.168.10.1 __hostname__MyMF32 luci-app-openclash
 - `iwinfo`：无线信息（WiFi LED 检测使用）
 
 ### 主题
-- `luci-theme-openwrt-2020`（默认主题）。**已移除 `luci-theme-argon` 及其配置 App**，避免界面依赖问题。
+- `luci-theme-glass`（默认主题，kenzok8 毛玻璃侧边栏布局，明暗双模式）。来自 `kenzok8/openwrt-packages` feed。**已移除 `luci-theme-argon` 及其配置 App**，亦不再编译 `luci-theme-openwrt-2020`。
 
 ### 自定义功能（files/ 覆盖层）
 - **4G 联网看门狗**：`/etc/init.d/4gmonitor` + `/etc/config/4gmonitor`，每分钟检测，registered 假死 >3 次自动重启 wwan 接口。
