@@ -26,6 +26,6 @@ while true; do
       if [ "$j" = "$i" ]; then echo "$(max_of bat_$j)" > "$p/brightness" 2>/dev/null
       else echo 0 > "$p/brightness" 2>/dev/null; fi
     done
-    sleep 0.3
+    sleep 0.6
   done
 done
