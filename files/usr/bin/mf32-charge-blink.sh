@@ -1,5 +1,5 @@
 #!/bin/sh
-# MF32 充电跑马灯守护进程：status=Charging 时让 bat_1~bat_4 依次点亮循环（跑马灯）。
+# MF32 充电叠加亮灯守护进程：status=Charging 时让 bat_1~bat_4 累加式点亮（1 → 1+2 → 1+2+3 → 全亮 → 循环）。
 # 由 mf32-battery-led.sh 在充电时拉起；非充电或本进程被杀即退出。
 # 注意：MF32 上 LED 的 timer 触发不生效，只能用脚本周期翻转 brightness 实现。
 PIDF=/var/run/mf32-charge-blink.pid
@@ -23,7 +23,7 @@ while true; do
     for j in 1 2 3 4; do
       p="/sys/class/leds/bat_$j"; [ -d "$p" ] || continue
       echo none > "$p/trigger" 2>/dev/null
-      if [ "$j" = "$i" ]; then echo "$(max_of bat_$j)" > "$p/brightness" 2>/dev/null
+      if [ "$j" -le "$i" ]; then echo "$(max_of bat_$j)" > "$p/brightness" 2>/dev/null
       else echo 0 > "$p/brightness" 2>/dev/null; fi
     done
     sleep 1

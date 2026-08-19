@@ -1,7 +1,7 @@
 #!/bin/sh
 # MF32 电量灯：PM8916 BMS-VM 驱动只暴露电压、不暴露 capacity，
 # 故用 voltage_ocv(优先)/voltage_now 配合 min/max 设计电压线性估算百分比。
-# 充电中(status=Charging) 拉起 mf32-charge-blink.sh 让 4 颗电量灯跑马灯。
+# 充电中(status=Charging) 拉起 mf32-charge-blink.sh 让 4 颗电量灯叠加式亮灯。
 LEDS="bat_1 bat_2 bat_3 bat_4"
 NODE=""
 for d in /sys/class/power_supply/*/; do
@@ -37,7 +37,7 @@ SEG=$(( (LEVEL + 24) / 25 ))   # 0-4 段
 
 BLINK_PIDF=/var/run/mf32-charge-blink.pid
 if [ "$STATUS" = "Charging" ]; then
-  # 充电：拉起跑马灯守护进程（独占全部 4 颗电量灯），不点亮常亮段
+  # 充电：拉起叠加亮灯守护进程（独占全部 4 颗电量灯），不点亮常亮段
   RUNNING=0
   if [ -f "$BLINK_PIDF" ]; then
     OPID=$(cat "$BLINK_PIDF" 2>/dev/null | tr -d '\n')
