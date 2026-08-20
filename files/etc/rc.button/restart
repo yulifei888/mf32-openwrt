@@ -4,7 +4,8 @@
 #   双击  -> 关机
 #   长按 >=6s -> 重启网络(modemmanager + 接口)
 # 兼容 button-hotplug 的 ACTION 命名（released / release）
-[ "$BUTTON" = "power" ] || [ -z "$BUTTON" ] || exit 0
+# 注：dts 按键节点 label="Restart"/KEY_RESTART → hotplug 传入 BUTTON=restart，故脚本名与判断均用 restart
+[ "$BUTTON" = "restart" ] || [ -z "$BUTTON" ] || exit 0
 case "$ACTION" in
   released|release) : ;;
   *) exit 0 ;;
