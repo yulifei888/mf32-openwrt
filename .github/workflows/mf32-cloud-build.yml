@@ -143,6 +143,8 @@ jobs:
     - name: 移除 small-package 中与系统冲突的包
       run: |
         rm -rf openwrt/feeds/smpackage/{base-files,dnsmasq,firewall*,fullconenat,libnftnl,nftables,ppp,opkg,ucl,upx,vsftpd*,miniupnpd-iptables,wireless-regdb}
+        # 移除在 snapshot 编不过或拖入问题依赖的代理包（mihomo Go模块缺失; ssr-plus/fchomo 强制子选项拉 mihomo）
+        rm -rf openwrt/feeds/smpackage/mihomo openwrt/feeds/smpackage/luci-app-ssr-plus openwrt/feeds/smpackage/luci-app-fchomo
 
     - name: 安装 feeds
       run: cd openwrt && ./scripts/feeds install -a -f
